@@ -1,0 +1,13 @@
+openai>=1.40.0
+anthropic>=0.34.0
+python-dotenv>=1.0.1
+newspaper3k>=0.2.8
+lxml[html_clean]>=5.2.2
+keybert>=0.8.5
+nltk>=3.9.1
+sentence-transformers>=3.0.1
+scikit-learn>=1.5.1
+transformers>=4.44.0
+torch>=2.2.0
+pandas>=2.2.2
+matplotlib>=3.9.0

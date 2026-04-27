@@ -1,0 +1,4 @@
+Model,coverage_score,keyword_overlap,similarity,faithfulness_score,contradiction_rate,abs_sentiment_shift,composite_score
+Grok,0.8333,0.2,0.8569,0.6667,0.0,0.1287,0.64069
+Gemini,0.5,0.2,0.792,0.8,0.0,0.6626,0.5642
+GPT,0.5,0.2,0.8382,0.75,0.0,0.0625,0.5513199999999999
