@@ -93,9 +93,9 @@ def detect_columns(fieldnames: List[str]) -> Dict[str, str]:
 
 
 def run(input_csv: str, output_csv: str):
-    kw_model = KeyBERT(model="all-MiniLM-L6-v2")
+    embed_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+    kw_model = KeyBERT(model=embed_model)
     sentiment_analyzer = get_sentiment_analyzer()
-    embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
     output_rows = []
 

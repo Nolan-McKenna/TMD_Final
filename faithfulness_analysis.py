@@ -111,8 +111,8 @@ def run(
     chunk_words: int,
     overlap_words: int,
 ):
-    nli = pipeline("text-classification", model="roberta-large-mnli")
-    embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+    nli = pipeline("text-classification", model="roberta-large-mnli", device=-1)
+    embed_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 
     output_rows = []
 

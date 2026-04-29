@@ -2,24 +2,20 @@ import csv
 import os
 import argparse
 import re
+import time
 from typing import Dict, List, Tuple
 
 from dotenv import load_dotenv
-from newspaper import Article
 from openai import OpenAI
-from openai import BadRequestError
 
 load_dotenv()
 
 INPUT_CSV = "manually-labeling-news-articles.csv"
 OUTPUT_CSV = "article_summaries.csv"
 SYSTEM_PROMPT = "You are a helpful, general-purpose assistant."
-PROMPT_PREFIX = "Please summarize the following article: "
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
+PROMPT_PREFIX = "Please summarize the following article in a paragraph."
+MAX_RETRIES = 3
+RETRY_DELAYS_SECONDS = [5, 10]
 
 
 def normalize_header(name: str) -> str:
@@ -34,25 +30,21 @@ def detect_input_columns(fieldnames: List[str]) -> Dict[str, str]:
         raise ValueError("Could not find article title column (expected something like 'Article Name').")
 
     genre_col = None
-    link_col = None
-    key_summary_col = None
+    article_text_col = None
 
     for normalized, original in norm_map.items():
         if genre_col is None and normalized.startswith("genre"):
             genre_col = original
-        if link_col is None and ("linktoarticle" in normalized or (normalized.startswith("link") and "article" in normalized)):
-            link_col = original
-        if key_summary_col is None and ("keysummary" in normalized or ("key" in normalized and "takeaway" in normalized)):
-            key_summary_col = original
+        if article_text_col is None and normalized == "articletext":
+            article_text_col = original
 
-    if not link_col:
-        raise ValueError("Could not find link column (expected something like 'Link to Article').")
+    if not article_text_col:
+        raise ValueError("Could not find article text column (expected 'Article Text').")
 
     return {
         "article_name": article_col,
         "genre": genre_col or "",
-        "link": link_col,
-        "key_summary": key_summary_col or "",
+        "article_text": article_text_col,
     }
 
 
@@ -100,43 +92,56 @@ def load_articles(csv_path: str) -> Dict[str, List[Tuple[str, str, str]]]:
             title = (row.get(cols["article_name"]) or "").strip()
             genre = (row.get(cols["genre"]) or "").strip() if cols["genre"] else ""
             genre = genre or "Unknown"
-            link = (row.get(cols["link"]) or "").strip()
-            if not link:
-                article_texts.setdefault(genre, []).append((title, "", "missing_link"))
-                continue
-
-            try:
-                article = Article(
-                    link,
-                    browser_user_agent=DEFAULT_USER_AGENT,
-                    request_timeout=20,
-                )
-                article.download()
-                article.parse()
-                text = article.text
-                text_source = "article_link"
-            except Exception as exc:
-                print(f"Failed to parse '{title}' ({link}): {exc}")
-                text = ""
-                text_source = "parse_failed"
+            text = (row.get(cols["article_text"]) or "").strip()
+            text_source = "provided_article_text" if text else "missing_article_text"
 
             article_texts.setdefault(genre, []).append((title, text, text_source))
 
     return article_texts
 
 
-def summarize(client: OpenAI, model: str, article_text: str) -> str:
+def summarize(client: OpenAI, model: str, article_name: str, article_text: str) -> str:
     if not article_text.strip():
         return ""
+
+    user_prompt = (
+        f"{PROMPT_PREFIX}\n\n"
+        f"Article Name: {article_name.strip() or 'Untitled'}\n\n"
+        f"Article Content:\n{article_text}"
+    )
 
     response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": PROMPT_PREFIX + article_text},
+            {"role": "user", "content": user_prompt},
         ],
     )
     return response.choices[0].message.content or ""
+
+
+def summarize_with_retries(
+    client: OpenAI,
+    model: str,
+    article_text: str,
+    article_name: str,
+    provider: str,
+    max_retries: int = MAX_RETRIES,
+) -> str:
+    for attempt in range(1, max_retries + 1):
+        try:
+            return summarize(client, model, article_name, article_text)
+        except Exception as exc:
+            if attempt == max_retries:
+                raise RuntimeError(
+                    f"Provider '{provider}' failed for '{article_name}' after {max_retries} attempts: {exc}"
+                ) from exc
+            sleep_seconds = RETRY_DELAYS_SECONDS[min(attempt - 1, len(RETRY_DELAYS_SECONDS) - 1)]
+            print(
+                f"Retry {attempt}/{max_retries} for provider '{provider}' on '{article_name}' "
+                f"after error: {exc}. Waiting {sleep_seconds}s before retry."
+            )
+            time.sleep(sleep_seconds)
 
 
 def run(input_csv: str = INPUT_CSV, output_csv: str = OUTPUT_CSV):
@@ -162,18 +167,14 @@ def run(input_csv: str = INPUT_CSV, output_csv: str = OUTPUT_CSV):
             }
 
             for provider, config in clients.items():
-                try:
-                    summary = summarize(config["client"], config["model"], article_text)
-                except BadRequestError as exc:
-                    # Common case: model alias not available for a provider account.
-                    print(
-                        f"Skipping provider '{provider}' for '{article_name}'. "
-                        f"Model '{config['model']}' was rejected: {exc}"
-                    )
-                    summary = ""
-                except Exception as exc:
-                    print(f"Skipping provider '{provider}' for '{article_name}' due to error: {exc}")
-                    summary = ""
+                summary = summarize_with_retries(
+                    client=config["client"],
+                    model=config["model"],
+                    article_text=article_text,
+                    article_name=article_name,
+                    provider=provider,
+                    max_retries=MAX_RETRIES,
+                )
 
                 if provider == "gpt":
                     result["GPT Summary"] = summary
@@ -203,8 +204,8 @@ def run(input_csv: str = INPUT_CSV, output_csv: str = OUTPUT_CSV):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Summarize article links using available LLM providers.")
-    parser.add_argument("--input", default=INPUT_CSV, help="Input CSV with links and metadata")
+    parser = argparse.ArgumentParser(description="Summarize provided article text using available LLM providers.")
+    parser.add_argument("--input", default=INPUT_CSV, help="Input CSV with article metadata and Article Text")
     parser.add_argument("--output", default=OUTPUT_CSV, help="Output CSV with model summaries")
     return parser.parse_args()
 

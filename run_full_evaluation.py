@@ -153,6 +153,11 @@ def parse_args():
         help="Input CSV with article links and manual key points",
     )
     parser.add_argument(
+        "--summaries-input",
+        default="",
+        help="Optional existing article_summaries.csv to resume from Step 2 (skip summarization step)",
+    )
+    parser.add_argument(
         "--outdir",
         default="",
         help="Output directory. Default creates timestamped folder under runs/",
@@ -239,8 +244,12 @@ def main():
         )
         print(f"Selected {selected_count} article row(s) for this run.")
 
-    print("Step 1/5: Summarization")
-    run_summarization(input_csv=pipeline_input_csv, output_csv=summaries_csv)
+    if args.summaries_input.strip():
+        summaries_csv = args.summaries_input.strip()
+        print(f"Step 1/5: Summarization (skipped, using existing file: {summaries_csv})")
+    else:
+        print("Step 1/5: Summarization")
+        run_summarization(input_csv=pipeline_input_csv, output_csv=summaries_csv)
 
     produced_framing_csv = framing_csv
     produced_coverage_csv = coverage_csv

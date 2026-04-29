@@ -1,7 +1,7 @@
 # TMD Final Pipeline
 
 This project runs a full article summarization + evaluation workflow:
-1. Pull article text from links in `manually-labeling-news-articles.csv`
+1. Read provided article text from `manually-labeling-news-articles.csv` (`Article Text` column)
 2. Generate summaries (GPT / Gemini / Grok, based on keys in `.env`)
 3. Run framing analysis
 4. Run coverage analysis
@@ -78,9 +78,7 @@ PY
 
 ### Summaries only
 ```bash
-python3 summarize_articles_pipeline.py \
-  --input manually-labeling-news-articles.csv \
-  --output article_summaries.csv
+python3 summarize_articles_pipeline.py --input manually-labeling-news-articles.csv --output article_summaries.csv
 ```
 
 ### Framing only

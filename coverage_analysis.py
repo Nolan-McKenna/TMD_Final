@@ -135,7 +135,7 @@ def run(
     covered_threshold: float,
     partial_threshold: float,
 ):
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")
     keypoint_map = load_keypoints_csv(keypoints_csv)
 
     output_rows = []
